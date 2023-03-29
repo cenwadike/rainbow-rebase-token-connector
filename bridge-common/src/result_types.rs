@@ -16,6 +16,11 @@ pub const RESULT_PREFIX_LOCK: ResultPrefix = [
     181, 241, 113, 159, 177, 114, 189, 51, 0, 172, 134, 35,
 ];
 
+/// This prefix value is computed as: `keccak256(b"ResultType.Rebase").as_slice()`
+pub const RESULT_PREFIX_REBASE: ResultPrefix = [182, 68, 32, 111, 244, 132, 125, 103, 16, 158, 82, 
+    93, 73, 227, 69, 109, 145, 70, 199, 143, 47, 56, 3, 18, 154, 186, 85, 140, 112, 119, 23, 220,
+];
+
 /// This prefix value is computed as: `keccak256(b"ResultType.Metadata").as_slice()`
 pub const RESULT_PREFIX_METADATA: ResultPrefix = [
     179, 21, 212, 214, 232, 242, 53, 245, 250, 187, 11, 26, 15, 17, 133, 7, 246, 200, 84, 47, 174,
@@ -65,6 +70,27 @@ impl Lock {
 }
 
 #[derive(Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct Rebase {
+    #[cfg(feature = "result_with_prefix")]
+    pub prefix: ResultPrefix,
+    pub token: String,
+    pub epoch: Balance,
+    pub supply_delta: Balance,
+}
+
+impl Rebase {
+    pub fn new(token: String, epoch: Balance, supply_delta: Balance) -> Self {
+        Self {
+            #[cfg(feature = "result_with_prefix")]
+            prefix: RESULT_PREFIX_REBASE,
+            token,
+            epoch,
+            supply_delta,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct Metadata {
     #[cfg(feature = "result_with_prefix")]
     pub prefix: ResultPrefix,
@@ -106,6 +132,10 @@ fn generate_result_prefixs() {
         near_sdk::env::keccak256(b"ResultType.Lock").as_slice()
     );
     assert_eq!(
+        RESULT_PREFIX_REBASE,
+        near_sdk::env::keccak256(b"ResultType.Rebase").as_slice()
+    );
+    assert_eq!(
         RESULT_PREFIX_METADATA,
         near_sdk::env::keccak256(b"ResultType.Metadata").as_slice()
     );
@@ -117,6 +147,10 @@ fn generate_result_prefixs() {
     assert_eq!(
         "0a9eb877458579dbce83ea57d556be50d1c3160bb5f1719fb172bd3300ac8623",
         hex::encode(RESULT_PREFIX_LOCK)
+    );
+    assert_eq!(
+        "b644206ff4847d67109e525d49e3456d9146c78f2f3803129aba558c707717dc",
+        hex::encode(RESULT_PREFIX_REBASE)
     );
     assert_eq!(
         "b315d4d6e8f235f5fabb0b1a0f118507f6c8542fae8e1a9566abe60762047c16",

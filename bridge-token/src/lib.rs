@@ -1,14 +1,18 @@
+use crate::core::{FungibleToken, TOTAL_GONS};
 use admin_controlled::Mask;
 use near_contract_standards::fungible_token::metadata::{
     FungibleTokenMetadata, FungibleTokenMetadataProvider, FT_METADATA_SPEC,
 };
-use near_contract_standards::fungible_token::FungibleToken;
+use near_contract_standards::storage_management::StorageManagement;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::{
     assert_one_yocto, env, ext_contract, near_bindgen, AccountId, Balance, Gas, PanicOnDefault,
     Promise, PromiseOrValue, StorageUsage,
 };
+
+mod core;
+mod storage;
 
 /// Gas to call finish withdraw method on factory.
 const FINISH_WITHDRAW_GAS: Gas = Gas(Gas::ONE_TERA.0 * 50);
@@ -43,11 +47,11 @@ pub trait ExtBridgeTokenFactory {
 #[near_bindgen]
 impl BridgeToken {
     #[init]
-    pub fn new() -> Self {
+    pub fn new(global_ampl_supply: Balance) -> Self {
         assert!(!env::state_exists(), "Already initialized");
         Self {
             controller: env::predecessor_account_id(),
-            token: FungibleToken::new(b"t".to_vec()),
+            token: FungibleToken::new(b"t".to_vec(), global_ampl_supply),
             name: String::default(),
             symbol: String::default(),
             reference: String::default(),
@@ -92,8 +96,30 @@ impl BridgeToken {
             "Only controller can call mint"
         );
 
-        self.storage_deposit(Some(account_id.clone()), None);
-        self.token.internal_deposit(&account_id, amount.into());
+        let internal_amount = amount.0.checked_mul(self.token.gons_per_fragment).unwrap();
+        self.token.storage_deposit(Some(account_id.clone()), None);
+        self.token
+            .internal_deposit(&account_id, internal_amount.into());
+    }
+
+    #[payable]
+    pub fn ft_rebase(&mut self, supply_delta: Balance) {
+        assert_eq!(
+            env::predecessor_account_id(),
+            self.controller,
+            "Only controller can call rebase"
+        );
+
+        if supply_delta < 0 as Balance {
+            self.token.total_supply = self
+                .token
+                .total_supply
+                .checked_sub(supply_delta.into())
+                .unwrap();
+        } else {
+            self.token.total_supply = self.token.total_supply.checked_add(supply_delta).unwrap();
+        }
+        self.token.gons_per_fragment = TOTAL_GONS.checked_div(self.token.total_supply).unwrap();
     }
 
     #[payable]
@@ -103,8 +129,9 @@ impl BridgeToken {
         assert_one_yocto();
         Promise::new(env::predecessor_account_id()).transfer(1);
 
+        let internal_amount = amount.0.checked_mul(self.token.gons_per_fragment).unwrap();
         self.token
-            .internal_withdraw(&env::predecessor_account_id(), amount.into());
+            .internal_withdraw(&env::predecessor_account_id(), internal_amount.into());
 
         ext_bridge_token_factory::ext(self.controller.clone())
             .with_static_gas(FINISH_WITHDRAW_GAS)
@@ -121,9 +148,6 @@ impl BridgeToken {
         caller == self.controller || caller == env::current_account_id()
     }
 }
-
-near_contract_standards::impl_fungible_token_core!(BridgeToken, token);
-near_contract_standards::impl_fungible_token_storage!(BridgeToken, token);
 
 #[near_bindgen]
 impl FungibleTokenMetadataProvider for BridgeToken {

@@ -141,6 +141,75 @@ impl EthEvent {
     }
 }
 
+pub struct EthRebaseEvent {
+    pub rebaser_address: EthAddress,
+    pub log: Log,
+}
+
+impl EthRebaseEvent {
+    pub fn from_log_entry_data(name: &str, params: EthEventParams, data: &[u8]) -> Self {
+        let event = Event {
+            name: name.to_string(),
+            inputs: params
+                .into_iter()
+                .map(|(name, kind, indexed)| EventParam {
+                    name,
+                    kind,
+                    indexed,
+                })
+                .collect(),
+            anonymous: false,
+        };
+        let log_entry: LogEntry = rlp::decode(data).expect("Invalid RLP");
+        let rebaser_address = (log_entry.address.clone().0).0;
+        let topics = log_entry
+            .topics
+            .iter()
+            .map(|h| Hash::from(&((h.0).0)))
+            .collect();
+
+        let raw_log = RawLog {
+            topics,
+            data: log_entry.data.clone(),
+        };
+
+        let log = event.parse_log(raw_log).expect("Failed to parse event log");
+        Self {
+            rebaser_address,
+            log,
+        }
+    }
+
+    pub fn to_log_entry_data(
+        name: &str,
+        params: EthEventParams,
+        rebaser_address: EthAddress,
+        indexes: Vec<Vec<u8>>,
+        values: Vec<Token>,
+    ) -> Vec<u8> {
+        let event = Event {
+            name: name.to_string(),
+            inputs: params
+                .into_iter()
+                .map(|(name, kind, indexed)| EventParam {
+                    name: name.to_string(),
+                    kind,
+                    indexed,
+                })
+                .collect(),
+            anonymous: false,
+        };
+        let params: Vec<ParamType> = event.inputs.iter().map(|p| p.kind.clone()).collect();
+        let topics = indexes.into_iter().map(|value| H256::from(value)).collect();
+        let log_entry = LogEntry {
+            address: rebaser_address.into(),
+            topics: vec![vec![long_signature(&event.name, &params).0.into()], topics].concat(),
+            data: ethabi::encode(&values),
+        };
+        rlp::encode(&log_entry)
+    }
+}
+
 fn long_signature(name: &str, params: &[ParamType]) -> Hash {
     let mut result = [0u8; 32];
     fill_signature(name, params, &mut result);
